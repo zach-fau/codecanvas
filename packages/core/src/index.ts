@@ -63,4 +63,9 @@ export {
   analyzeDirectory,
   analyzeFile,
   hasCircularDependencies,
+  clearParseCache,
+  getParseCacheStats,
 } from './analyzer.js';
+
+// Re-export cache utilities
+export { ParseCache, globalParseCache } from './cache.js';

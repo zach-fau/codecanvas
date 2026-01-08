@@ -145,6 +145,10 @@ export interface AnalyzerOptions {
   pathAliases?: Record<string, string[]>;
   /** Progress callback for long operations */
   onProgress?: (event: ProgressEvent) => void;
+  /** Maximum concurrent file parses (default: 50) */
+  concurrency?: number;
+  /** Enable parse caching (default: true) */
+  enableCache?: boolean;
 }
 
 /**

@@ -1,5 +1,10 @@
 /**
  * Directory analyzer for building dependency graphs from codebases
+ *
+ * Performance optimizations:
+ * - Batched parallel file parsing (configurable concurrency)
+ * - Content-based caching for repeated analyses
+ * - Concurrent directory discovery
  */
 
 import * as fs from 'node:fs/promises';
@@ -12,8 +17,12 @@ import type {
 } from './types.js';
 import { DEFAULT_EXTENSIONS, DEFAULT_IGNORE_DIRS } from './types.js';
 import { DependencyGraph } from './graph.js';
-import { parseFile, isSupportedFile } from './parser.js';
+import { parseFile, isSupportedFile, initParser, getLanguageForFile, parseSource } from './parser.js';
 import { findCycles } from './cycles.js';
+import { ParseCache, globalParseCache } from './cache.js';
+
+/** Default concurrency for parallel file parsing */
+const DEFAULT_CONCURRENCY = 50;
 
 /**
  * Analyze a directory and build a dependency graph.
@@ -36,38 +45,63 @@ export async function analyzeDirectory(
   const ignoreDirs = options.ignoreDirs || DEFAULT_IGNORE_DIRS;
   const ignorePatterns = options.ignorePatterns || [];
   const onProgress = options.onProgress;
+  const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
+  const enableCache = options.enableCache ?? true;
+
+  // Use global cache or create a new one
+  const cache = enableCache ? globalParseCache : new ParseCache();
 
   // Notify progress: discovering files
   onProgress?.({ phase: 'discovering' });
 
-  // Discover all files
-  const files = await discoverFiles(rootDir, extensions, ignoreDirs, ignorePatterns);
+  // Discover all files (with concurrent directory reads)
+  const files = await discoverFilesConcurrent(rootDir, extensions, ignoreDirs, ignorePatterns);
 
   // Build the graph
   const graph = new DependencyGraph(rootDir);
   const errors: { file: string; error: string }[] = [];
   const totalFiles = files.length;
 
-  // Parse each file and extract imports
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
+  // Pre-initialize the parser (one-time cost)
+  initParser();
+
+  // Add all nodes first
+  for (const file of files) {
     graph.addNode(file);
+  }
 
-    // Notify progress: parsing file
-    onProgress?.({
-      phase: 'parsing',
-      current: i + 1,
-      total: totalFiles,
-      file,
-    });
+  // Parse files in parallel batches
+  let processedCount = 0;
 
-    try {
-      const imports = await parseFile(file);
+  for (let i = 0; i < files.length; i += concurrency) {
+    const batch = files.slice(i, Math.min(i + concurrency, files.length));
+
+    // Parse all files in this batch concurrently
+    const batchResults = await Promise.all(
+      batch.map(async (file) => {
+        try {
+          const imports = await parseFileWithCache(file, cache, enableCache);
+          return { file, imports, error: null };
+        } catch (err) {
+          return {
+            file,
+            imports: [] as ImportInfo[],
+            error: err instanceof Error ? err.message : String(err)
+          };
+        }
+      })
+    );
+
+    // Process results and add edges
+    for (const result of batchResults) {
+      if (result.error) {
+        errors.push({ file: result.file, error: result.error });
+      }
 
       // Resolve each import to an actual file path
-      for (const importInfo of imports) {
+      for (const importInfo of result.imports) {
         const resolvedPath = await resolveImport(
-          file,
+          result.file,
           importInfo.source,
           rootDir,
           extensions,
@@ -75,15 +109,18 @@ export async function analyzeDirectory(
         );
 
         if (resolvedPath) {
-          graph.addEdge(file, resolvedPath);
+          graph.addEdge(result.file, resolvedPath);
         }
       }
-    } catch (err) {
-      errors.push({
-        file,
-        error: err instanceof Error ? err.message : String(err),
-      });
     }
+
+    // Update progress
+    processedCount = Math.min(i + concurrency, files.length);
+    onProgress?.({
+      phase: 'parsing',
+      current: processedCount,
+      total: totalFiles,
+    });
   }
 
   // Notify progress: analyzing graph
@@ -113,17 +150,59 @@ export async function analyzeDirectory(
 }
 
 /**
- * Recursively discover all supported files in a directory
+ * Parse a file with caching support
  */
-async function discoverFiles(
+async function parseFileWithCache(
+  filePath: string,
+  cache: ParseCache,
+  enableCache: boolean
+): Promise<ImportInfo[]> {
+  // Read file content
+  const content = await fs.readFile(filePath, 'utf-8');
+
+  if (enableCache) {
+    // Check cache with content hash
+    const hash = cache.getHash(content);
+    const cached = cache.get(filePath, hash);
+
+    if (cached !== null) {
+      return cached;
+    }
+
+    // Parse and cache
+    const imports = parseFileContent(filePath, content);
+    cache.set(filePath, hash, imports);
+    return imports;
+  }
+
+  // Direct parse without caching
+  return parseFileContent(filePath, content);
+}
+
+/**
+ * Parse file content directly (used internally to avoid double file reads)
+ */
+function parseFileContent(filePath: string, content: string): ImportInfo[] {
+  const language = getLanguageForFile(filePath);
+  if (!language) {
+    throw new Error(`Unsupported file type: ${path.extname(filePath)}`);
+  }
+  return parseSource(content, language);
+}
+
+/**
+ * Recursively discover all supported files in a directory with concurrent reads
+ */
+async function discoverFilesConcurrent(
   dirPath: string,
   extensions: string[],
   ignoreDirs: string[],
   ignorePatterns: string[]
 ): Promise<string[]> {
   const files: string[] = [];
+  const ignoreDirsSet = new Set(ignoreDirs);
 
-  async function walk(currentPath: string): Promise<void> {
+  async function walkConcurrent(currentPath: string): Promise<void> {
     let entries: import('node:fs').Dirent[];
 
     try {
@@ -133,12 +212,16 @@ async function discoverFiles(
       return;
     }
 
+    // Separate directories and files
+    const directories: string[] = [];
+    const regularFiles: string[] = [];
+
     for (const entry of entries) {
       const fullPath = path.join(currentPath, entry.name);
 
       if (entry.isDirectory()) {
         // Skip ignored directories
-        if (ignoreDirs.includes(entry.name)) {
+        if (ignoreDirsSet.has(entry.name)) {
           continue;
         }
 
@@ -147,21 +230,27 @@ async function discoverFiles(
           continue;
         }
 
-        await walk(fullPath);
+        directories.push(fullPath);
       } else if (entry.isFile()) {
         // Check if file has a supported extension
         const ext = path.extname(entry.name).toLowerCase();
         if (extensions.includes(ext) && isSupportedFile(entry.name)) {
           // Skip if matches ignore pattern
           if (!shouldIgnore(fullPath, ignorePatterns)) {
-            files.push(fullPath);
+            regularFiles.push(fullPath);
           }
         }
       }
     }
+
+    // Add files from this directory
+    files.push(...regularFiles);
+
+    // Process subdirectories concurrently
+    await Promise.all(directories.map(dir => walkConcurrent(dir)));
   }
 
-  await walk(dirPath);
+  await walkConcurrent(dirPath);
   return files;
 }
 
@@ -381,4 +470,20 @@ export async function hasCircularDependencies(
 ): Promise<boolean> {
   const result = await analyzeDirectory(dirPath, options);
   return result.cycles.length > 0;
+}
+
+/**
+ * Clear the global parse cache.
+ * Useful for forcing a fresh analysis.
+ */
+export function clearParseCache(): void {
+  globalParseCache.clear();
+}
+
+/**
+ * Get parse cache statistics.
+ * Useful for debugging and performance monitoring.
+ */
+export function getParseCacheStats(): { size: number; hits: number; misses: number; hitRate: number } {
+  return globalParseCache.stats;
 }
