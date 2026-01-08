@@ -49,16 +49,26 @@ export interface DependencyNode {
  * A circular dependency chain
  */
 export interface CircularDependency {
-  /** Files involved in the cycle, in order */
+  /** Files involved in the cycle, in order (e.g., A → B → C → A) */
   chain: string[];
-  /** Length of the cycle */
+  /** Length of the cycle (number of files involved) */
   length: number;
 }
 
 /**
- * Complete dependency graph for a project
+ * An edge in the dependency graph
  */
-export interface DependencyGraph {
+export interface DependencyEdge {
+  /** Source file (the file that imports) */
+  from: string;
+  /** Target file (the file being imported) */
+  to: string;
+}
+
+/**
+ * Complete dependency graph data for a project (serializable format)
+ */
+export interface DependencyGraphData {
   /** All nodes in the graph, keyed by file path */
   nodes: Map<string, DependencyNode>;
   /** All detected circular dependencies */
@@ -80,6 +90,58 @@ export interface ParserOptions {
 }
 
 /**
+ * Options for the analyzer
+ */
+export interface AnalyzerOptions {
+  /** File extensions to analyze (default: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts']) */
+  extensions?: string[];
+  /** Directories to ignore (default: ['node_modules', 'dist', 'build', '.git']) */
+  ignoreDirs?: string[];
+  /** Glob patterns to ignore */
+  ignorePatterns?: string[];
+  /** Whether to follow symlinks (default: false) */
+  followSymlinks?: boolean;
+  /** Base URL for path resolution (from tsconfig) */
+  baseUrl?: string;
+  /** Path aliases for resolution (from tsconfig) */
+  pathAliases?: Record<string, string[]>;
+}
+
+/**
+ * Statistics about the analyzed codebase
+ */
+export interface AnalysisStats {
+  /** Total number of files analyzed */
+  totalFiles: number;
+  /** Total number of dependencies (edges) */
+  totalDependencies: number;
+  /** Number of circular dependencies found */
+  circularDependencies: number;
+  /** Files with the most dependencies */
+  topDependencies: { file: string; count: number }[];
+  /** Files with the most dependents */
+  topDependents: { file: string; count: number }[];
+  /** Analysis duration in milliseconds */
+  duration: number;
+}
+
+/**
+ * Result of analyzing a directory
+ */
+export interface AnalysisResult {
+  /** The dependency graph */
+  graph: DependencyGraphData;
+  /** All circular dependencies found */
+  cycles: CircularDependency[];
+  /** Statistics about the analysis */
+  stats: AnalysisStats;
+  /** Any errors encountered during analysis */
+  errors: { file: string; error: string }[];
+  /** Root directory that was analyzed */
+  rootDir: string;
+}
+
+/**
  * Supported file types for parsing
  */
 export type SupportedLanguage = 'typescript' | 'javascript' | 'tsx' | 'jsx';
@@ -97,3 +159,13 @@ export const extensionToLanguage: Record<string, SupportedLanguage> = {
   '.mts': 'typescript',
   '.cts': 'typescript',
 };
+
+/**
+ * Default file extensions to analyze
+ */
+export const DEFAULT_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts'];
+
+/**
+ * Default directories to ignore
+ */
+export const DEFAULT_IGNORE_DIRS = ['node_modules', 'dist', 'build', '.git', 'coverage', '.next', '.nuxt'];
