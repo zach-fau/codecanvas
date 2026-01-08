@@ -35,6 +35,10 @@ export async function analyzeDirectory(
   const extensions = options.extensions || DEFAULT_EXTENSIONS;
   const ignoreDirs = options.ignoreDirs || DEFAULT_IGNORE_DIRS;
   const ignorePatterns = options.ignorePatterns || [];
+  const onProgress = options.onProgress;
+
+  // Notify progress: discovering files
+  onProgress?.({ phase: 'discovering' });
 
   // Discover all files
   const files = await discoverFiles(rootDir, extensions, ignoreDirs, ignorePatterns);
@@ -42,10 +46,20 @@ export async function analyzeDirectory(
   // Build the graph
   const graph = new DependencyGraph(rootDir);
   const errors: { file: string; error: string }[] = [];
+  const totalFiles = files.length;
 
   // Parse each file and extract imports
-  for (const file of files) {
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
     graph.addNode(file);
+
+    // Notify progress: parsing file
+    onProgress?.({
+      phase: 'parsing',
+      current: i + 1,
+      total: totalFiles,
+      file,
+    });
 
     try {
       const imports = await parseFile(file);
@@ -71,6 +85,9 @@ export async function analyzeDirectory(
       });
     }
   }
+
+  // Notify progress: analyzing graph
+  onProgress?.({ phase: 'analyzing' });
 
   // Find cycles
   const cycles = findCycles(graph);

@@ -13,12 +13,15 @@ export type {
   DependencyNode,
   DependencyEdge,
   CircularDependency,
+  CycleSuggestion,
+  CycleSuggestionType,
   DependencyGraphData,
   ParserOptions,
   AnalyzerOptions,
   AnalysisResult,
   AnalysisStats,
   SupportedLanguage,
+  ProgressEvent,
 } from './types.js';
 
 export {
@@ -48,6 +51,12 @@ export {
   findLongestCycle,
   hasCycles,
 } from './cycles.js';
+
+// Re-export suggestion functions
+export {
+  generateCycleSuggestions,
+  addSuggestionsToAllCycles,
+} from './suggestions.js';
 
 // Re-export analyzer functions
 export {
