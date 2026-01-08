@@ -11,13 +11,21 @@ export type {
   ImportInfo,
   ParsedFile,
   DependencyNode,
+  DependencyEdge,
   CircularDependency,
-  DependencyGraph,
+  DependencyGraphData,
   ParserOptions,
+  AnalyzerOptions,
+  AnalysisResult,
+  AnalysisStats,
   SupportedLanguage,
 } from './types.js';
 
-export { extensionToLanguage } from './types.js';
+export {
+  extensionToLanguage,
+  DEFAULT_EXTENSIONS,
+  DEFAULT_IGNORE_DIRS,
+} from './types.js';
 
 // Re-export parser functions
 export {
@@ -27,3 +35,23 @@ export {
   getLanguageForFile,
   isSupportedFile,
 } from './parser.js';
+
+// Re-export graph class
+export { DependencyGraph } from './graph.js';
+
+// Re-export cycle detection functions
+export {
+  findCycles,
+  findStronglyConnectedComponents,
+  findAllSimpleCycles,
+  findCyclesInvolvingFile,
+  findLongestCycle,
+  hasCycles,
+} from './cycles.js';
+
+// Re-export analyzer functions
+export {
+  analyzeDirectory,
+  analyzeFile,
+  hasCircularDependencies,
+} from './analyzer.js';
