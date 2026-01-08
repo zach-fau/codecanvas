@@ -1,0 +1,32 @@
+{
+  "name": "codecanvas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Visual circular dependency detection and visualization for TypeScript/JavaScript monorepos",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "cli": "pnpm --filter @codecanvas/cli"
+  },
+  "keywords": [
+    "circular-dependencies",
+    "typescript",
+    "javascript",
+    "dependency-graph",
+    "visualization"
+  ],
+  "author": "",
+  "license": "MIT",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
