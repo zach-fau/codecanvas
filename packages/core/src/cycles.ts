@@ -4,6 +4,7 @@
 
 import type { CircularDependency } from './types.js';
 import type { DependencyGraph } from './graph.js';
+import { generateCycleSuggestions } from './suggestions.js';
 
 /**
  * Internal state for Tarjan's algorithm
@@ -110,13 +111,22 @@ export function findCycles(graph: DependencyGraph): CircularDependency[] {
   const cycles: CircularDependency[] = cyclicSccs.map(scc => {
     // Reconstruct the cycle path
     const cyclePath = reconstructCyclePath(scc, graph);
-    return {
+    const cycle: CircularDependency = {
       chain: cyclePath,
       length: scc.length,
     };
+    // Add suggestions for how to break this cycle
+    cycle.suggestions = generateCycleSuggestions(cycle, graph);
+    return cycle;
   });
 
-  return [...selfLoops, ...cycles];
+  // Add suggestions to self-loops
+  const selfLoopsWithSuggestions = selfLoops.map(loop => ({
+    ...loop,
+    suggestions: generateCycleSuggestions(loop, graph),
+  }));
+
+  return [...selfLoopsWithSuggestions, ...cycles];
 }
 
 /**

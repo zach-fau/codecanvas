@@ -46,6 +46,28 @@ export interface DependencyNode {
 }
 
 /**
+ * Type of suggestion for breaking a cycle
+ */
+export type CycleSuggestionType =
+  | 'extract-interface'
+  | 'dependency-injection'
+  | 'lazy-import'
+  | 'merge-files'
+  | 'reorder-imports';
+
+/**
+ * A suggestion for how to break a circular dependency
+ */
+export interface CycleSuggestion {
+  /** Type of suggestion */
+  type: CycleSuggestionType;
+  /** Human-readable description of the suggestion */
+  description: string;
+  /** The edge that would be best to remove/modify */
+  targetEdge?: { from: string; to: string };
+}
+
+/**
  * A circular dependency chain
  */
 export interface CircularDependency {
@@ -53,6 +75,8 @@ export interface CircularDependency {
   chain: string[];
   /** Length of the cycle (number of files involved) */
   length: number;
+  /** Suggestions for how to break this cycle */
+  suggestions?: CycleSuggestion[];
 }
 
 /**
@@ -90,6 +114,20 @@ export interface ParserOptions {
 }
 
 /**
+ * Progress event types for long-running operations
+ */
+export interface ProgressEvent {
+  /** Current phase of the analysis */
+  phase: 'discovering' | 'parsing' | 'analyzing';
+  /** Current item number (for parsing phase) */
+  current?: number;
+  /** Total number of items (for parsing phase) */
+  total?: number;
+  /** Current file being processed */
+  file?: string;
+}
+
+/**
  * Options for the analyzer
  */
 export interface AnalyzerOptions {
@@ -105,6 +143,12 @@ export interface AnalyzerOptions {
   baseUrl?: string;
   /** Path aliases for resolution (from tsconfig) */
   pathAliases?: Record<string, string[]>;
+  /** Progress callback for long operations */
+  onProgress?: (event: ProgressEvent) => void;
+  /** Maximum concurrent file parses (default: 50) */
+  concurrency?: number;
+  /** Enable parse caching (default: true) */
+  enableCache?: boolean;
 }
 
 /**
